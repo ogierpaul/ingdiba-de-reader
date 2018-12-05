@@ -86,7 +86,7 @@ def _preparedf(df):
     return df2
 
 
-class ING_Parser(TransformerMixin):
+class INGParser(TransformerMixin):
     def transform(self, X, y=None):
         return _preparedf(X)
 

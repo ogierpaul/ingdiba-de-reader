@@ -1,7 +1,9 @@
 import re
-
 import pandas as pd
 from sklearn.base import TransformerMixin
+from sklearn.pipeline import make_union, make_pipeline, Pipeline
+from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 
 def _extract_vendor(field):
@@ -86,9 +88,66 @@ def _preparedf(df):
     return df2
 
 
+class _ColumnSelector(TransformerMixin):
+    def transform(self, X, y=None):
+        usecols = ['VISA', 'amount', 'ispos', 'isround']
+        X2 = X[usecols].astype(float).fillna(0)
+        return X2
+
+    def fit(self, X=None, y=None):
+        return self
+
+
+class _OneHotCategory(TransformerMixin):
+    def __init__(self, on):
+        TransformerMixin.__init__(self)
+        self.on = on
+        self.le = LabelEncoder()
+        self.oh = OneHotEncoder()
+
+    def fit(self, X, y=None):
+        a = X[self.on].fillna('nan')
+        self.le = self.le.fit(a)
+        b = self.le.transform(a).reshape(-1, 1)
+        self.le.oh = self.oh.fit(b)
+        return self
+
+    def transform(self, X, y=None):
+        a = self.oh.transform(self.le.transform(X[self.on].fillna('nan')).reshape(-1, 1))
+        return a
+
+
 class INGParser(TransformerMixin):
     def transform(self, X, y=None):
         return _preparedf(X)
 
     def fit(self, X=None, y=None):
         return self
+
+
+tfcols = ['vendornew', 'desc_rest']
+streams = []
+for c in tfcols:
+    pipe = Pipeline(
+        [
+            ('col_' + c, FunctionTransformer(lambda X: X[c].fillna('nan').values, validate=False)),
+            ('tf_' + c, TfidfVectorizer())
+        ]
+    )
+    streams.append(pipe)
+pipe = Pipeline(
+    [
+        ('usecols',
+         _ColumnSelector())
+    ]
+)
+streams.append(pipe)
+for c in ['operation_type', 'lastschrift_type']:
+    streams.append(_OneHotCategory(on=c))
+
+scorer = make_pipeline(
+    *[
+        INGParser(),
+        make_union(*streams)
+    ]
+)
